@@ -1,8 +1,8 @@
 --[[
-       __                  ___ 
- |\/| /  \    |  /\  \  / |__  
- |  | \__/ \__/ /~~\  \/  |___ 
-                               
+       __                  ___
+ |\/| /  \    |  /\  \  / |__
+ |  | \__/ \__/ /~~\  \/  |___
+
 -------------------------------
 
 a battle snake arena
@@ -91,7 +91,7 @@ function love.load()
     activeGame = nil
     bgVignette = love.graphics.newImage( 'images/vignette.png' )
     config, configJson = nil
-    
+
     snakeHeads = {
         love.graphics.newImage( 'images/heads/bendr-snakehead.png', {mipmaps = true} ),
         love.graphics.newImage( 'images/heads/dead-snakehead.png', {mipmaps = true} ),
@@ -158,7 +158,8 @@ function love.load()
             enableBloom = true,
             fadeOutTails = true,
             enableVignette = true,
-            fullscreen = false
+            fullscreen = false,
+            rotateFood = true
         },
         audio = {
             enableMusic = true,
@@ -187,7 +188,9 @@ function love.load()
             logLevel = 3,
             enableSanityChecks = false,
             roboRecursionDepth = 4,
-            pauseNewGames = false
+            pauseNewGames = false,
+            showConsole = true,
+            showSplash = true
         }
     }
     if not love.filesystem.exists( 'config.json' ) then
@@ -196,7 +199,7 @@ function love.load()
             error( 'Unable to write config.json' )
         end
     end
-    
+
     -- Read snakes file
     snakesJson = love.filesystem.read( 'snakes.json' )
     if not snakesJson then
@@ -212,7 +215,7 @@ function love.load()
     if #snakes < 1 then
         error( 'snakes.json must contain at least one snake!' )
     end
-    
+
     -- Read config file
     configJson = love.filesystem.read( 'config.json' )
     if not configJson then
@@ -222,7 +225,7 @@ function love.load()
     if not config then
         error( 'Error parsing config.json: ' .. err )
     end
-    
+
     -- If this is an upgrade, there may be new options
     -- that do not exist in the local copy of config.json,
     -- so add anything missing.
@@ -254,17 +257,34 @@ function love.load()
     -- Set fullscreen state
     if config[ 'appearance' ][ 'fullscreen' ] ~= love.window.getFullscreen() then
         love.window.setFullscreen( config[ 'appearance' ][ 'fullscreen' ] )
+    else
+        love.window.setMode( 1200, 800, { resizable = true, vsync = true })
     end
+
     screenWidth, screenHeight = love.graphics.getDimensions()
     vxScale = love.graphics.getWidth() / bgVignette:getWidth()
     vyScale = love.graphics.getHeight() / bgVignette:getHeight()
 
+
     -- Splash Screen
-    splash = o_ten_one( { background={ 0, 0, 0 } }) 
-    splash.onDone = function()
+    if config[ 'system' ][ 'showSplash' ] then
+        splash = o_ten_one( { background={ 0, 0, 0 } })
+        splash.onDone = function()
+            SPLASH_DONE = true
+        end
+    else
         SPLASH_DONE = true
     end
-    
+
+end
+
+-- handle resizing of the window
+-- @param width the window's width
+-- @param height the window's height
+function love.resize( width, height )
+    screenWidth, screenHeight = width, height
+    vxScale = love.graphics.getWidth() / bgVignette:getWidth()
+    vyScale = love.graphics.getHeight() / bgVignette:getHeight()
 end
 
 --- Update loop
@@ -291,9 +311,8 @@ function love.draw()
     else
         Menu.draw()
     end
-    
+
     imgui.Render()
-    
 end
 
 --- Cleanly destroy imgui when the app exits
@@ -309,7 +328,7 @@ function love.textinput(t)
     end
 end
 function love.keypressed(key)
-    splash:skip()
+    if splash ~= nil then splash:skip() end
     imgui.KeyPressed(key)
     if not imgui.GetWantCaptureKeyboard() then
         -- Pass event to the game
@@ -331,7 +350,7 @@ function love.mousemoved(x, y)
     end
 end
 function love.mousepressed(x, y, button)
-    splash:skip()
+    if splash ~= nil then splash:skip() end
     imgui.MousePressed(button)
     if not imgui.GetWantCaptureMouse() then
         -- Pass event to the game

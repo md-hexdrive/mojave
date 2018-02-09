@@ -29,10 +29,10 @@ local SFXSnakeDeath = love.audio.newSource( 'audio/sfx/PowerDown1.mp3', 'static'
 -- @param table opt A table containing initialization options
 -- @return Snake
 function Snake.new( opt, slot, game_id )
-    
+
     local self = setmetatable( {}, Snake )
     local opt = opt or {}
-    
+
     -- Snake name and API endpoint
     self.type = opt.type
     self.url = opt.url or ''
@@ -54,7 +54,7 @@ function Snake.new( opt, slot, game_id )
         self.name = 'Redbrick Robosnake'
     end
     self.taunt = opt.taunt or ''
-    
+
     self.real_x = 0
     self.real_y = 0
     self.next_x = 0
@@ -74,7 +74,7 @@ function Snake.new( opt, slot, game_id )
     self.delayed_death = false
     self.color = { love.math.random(0, 255), love.math.random(0, 255), love.math.random(0, 255) }
     self.thread = false
-    
+
     if self.type == 2 then
         -- human player, no initialization required
     elseif self.type == 3 then
@@ -103,9 +103,9 @@ function Snake.new( opt, slot, game_id )
     else
         error( 'Unsupported snake type' )
     end
-    
+
     return self
-    
+
 end
 
 --- Executes a HTTP request to the BattleSnake server
@@ -118,17 +118,17 @@ function Snake:api( endpoint, data )
     local request_url = self.url .. '/' .. endpoint
     gameLog( string.format( 'Request URL: %s', request_url ), 'debug' )
     gameLog( string.format( 'POST body: %s', data ), 'debug' )
-    
+
     --[[
         The version of LuaSocket bundled with LÖVE has a bug
         where the http port will not get added to the Host header,
         which is a violation of the HTTP spec. Most web servers don't
         care - however - this breaks Flask, which interprets the
         spec very strictly and is also used by a lot of snakes.
-        
+
         We can work around this by manually parsing the URL,
         generating a Host header, and explicitly setting it on the request.
-        
+
         See https://github.com/diegonehab/luasocket/pull/74 for more info.
     ]]
     local parsed = socket.url.parse( request_url )
@@ -163,7 +163,7 @@ function Snake:api( endpoint, data )
             sink = ltn12.sink.table( response_body )
         })
     end
-    
+
     -- handle the response
     if status then
         gameLog( string.format( 'Response Code: %s', code ), 'debug' )
@@ -190,7 +190,7 @@ function Snake:api( endpoint, data )
             if response_data[ 'color' ] ~= nil then
                 self:setColor( response_data[ 'color' ], true )
             end
-            
+
             if response_data[ 'head_type' ] ~= nil then
                 if response_data[ 'head_type' ] == 'bendr' then
                     self.head = snakeHeads[1]
@@ -214,7 +214,7 @@ function Snake:api( endpoint, data )
                     self.head = snakeHeads[10]
                 end
             end
-            
+
             if response_data[ 'tail_type' ] ~= nil then
                 if response_data[ 'tail_type' ] == 'small-rattle' then
                     self.tail = snakeTails[1]
@@ -236,7 +236,7 @@ function Snake:api( endpoint, data )
                     self.tail = snakeTails[9]
                 end
             end
-            
+
             if response_data[ 'head_url' ] ~= nil then
                 self:setAvatar( response_data[ 'head_url' ] )
             elseif response_data[ 'head' ] ~= nil then
@@ -246,7 +246,7 @@ function Snake:api( endpoint, data )
     else
         -- no response from api call in allowed time
         gameLog( string.format( '%s: No response from API call in allowed time', self.name ), 'error' )
-        
+
         -- choose a random move for the snake if a move request timed out
         if endpoint == 'move' and self.type ~= 4 then
             self.direction = self.DIRECTIONS[love.math.random(4)]
@@ -306,19 +306,19 @@ end
 
 -- Setter function for the snake's avatar image
 function Snake:setAvatar( url )
-    
+
     gameLog( string.format( 'Request URL: %s', url ), 'debug' )
-    
+
     --[[
         The version of LuaSocket bundled with LÖVE has a bug
         where the http port will not get added to the Host header,
         which is a violation of the HTTP spec. Most web servers don't
         care - however - this breaks Flask, which interprets the
         spec very strictly and is also used by a lot of snakes.
-        
+
         We can work around this by manually parsing the URL,
         generating a Host header, and explicitly setting it on the request.
-        
+
         See https://github.com/diegonehab/luasocket/pull/74 for more info.
     ]]
     local parsed = socket.url.parse( url )
@@ -337,7 +337,7 @@ function Snake:setAvatar( url )
         },
         sink = ltn12.sink.table( response_body )
     })
-    
+
     -- handle the response
     if status then
         gameLog( string.format( 'Response Code: %s', code ), 'debug' )
@@ -369,7 +369,7 @@ function Snake:setAvatar( url )
         gameLog( string.format( '%s: No response from avatar URL call in allowed time', self.name ), 'error' )
         self.avatar = self.head
     end
-    
+
 end
 
 --- Sets the snake's body color
@@ -387,7 +387,7 @@ function Snake:setColor( value )
         -- @see https://gist.github.com/jasonbradley/4357406
         value = value:gsub( "#", "" )
         length = string.len( value )
-        
+
         if length == 3 then
             self.color = {
                 tonumber( "0x" .. value:sub( 1, 1 ) ) * 17,
@@ -426,7 +426,7 @@ function Snake:setDirection( value )
     else
         gameLog( string.format( '"%s" got invalid direction "%s"', self.name, value ), 'error' )
     end
-    
+
 end
 
 return Snake

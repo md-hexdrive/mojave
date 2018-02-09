@@ -6,6 +6,10 @@ setmetatable( Game, {
   end,
 })
 
+local updateThread = love.thread.newThread( 'modules/SnakeAPI.lua' )
+local workerChannel = love.thread.getChannel( 'worker' )
+local workerUpdateChannel = love.thread.getChannel( 'worker.update' )
+
 local BGM = love.audio.newSource( 'audio/music/Desert-Mayhem.mp3' )
 BGM:setLooping( true )
 local logoFont = love.graphics.newFont( 'fonts/monoton/Monoton-Regular.ttf', 48 )
@@ -14,12 +18,12 @@ local logoFont = love.graphics.newFont( 'fonts/monoton/Monoton-Regular.ttf', 48 
 -- @param table opt A table containing initialization options
 -- @return Game
 function Game.new( opt )
-    
+
     local self = setmetatable( {}, Game )
     local opt = opt or {}
 
     http.TIMEOUT = config[ 'gameplay' ][ 'responseTime' ]
-    
+
     self.console_history = {}
     self.id = Util.generateUUID()
     self.map = Map({
@@ -31,14 +35,14 @@ function Game.new( opt )
     self.walls = {}
     self.food = {}
     self.gold = {}
-    
+
     -- If we're playing with gold, place one now
     if config[ 'gameplay' ][ 'enableGold' ] then
         local gold_x, gold_y = self.map:setTileAtFreeLocationNearCenter( Map.TILE_GOLD )
         table.insert( self.gold, { gold_x, gold_y } )
         self:log( string.format( 'Placed gold at [%s, %s]', gold_x, gold_y ), 'debug' )
     end
-    
+
     -- If we're playing with a fixed amount of food, place it now
     if config[ 'gameplay' ][ 'foodStrategy' ] == 1 then
         for i = 1, config[ 'gameplay' ][ 'totalFood' ] do
@@ -47,9 +51,10 @@ function Game.new( opt )
             self:log( string.format( 'Placed food at [%s, %s]', food_x, food_y ), 'debug' )
         end
     end
-    
+
     -- add non-empty snakes to this game
     self.snakes = {}
+    self.threadSnakes = {}
     for i = 1, #snakes do
         if snakes[i][ 'type' ] ~= 1 then
             local x, y = self.map:setTileAtRandomFreeLocation( Map[ 'TILE_SNEK_' .. i ], 3 )
@@ -59,7 +64,7 @@ function Game.new( opt )
             end
             table.insert( self.snakes, newSnake )
             self:log( string.format( 'Placed snake "%s" at [%s, %s] with starting direction "%s"', newSnake[ 'name' ], x, y, newSnake[ 'direction' ] ), 'debug' )
-            
+
             -- starting taunt
             -- HACK, because gameLog() won't work in the Snake() constructor
             if
@@ -75,167 +80,173 @@ function Game.new( opt )
     end
 
     self.running = false
+    updateThread:start()
 
     return self
-    
+
 end
 
 --- Game render loop
 function Game:draw()
+    -- Render the game board.
+    if config[ 'appearance' ][ 'enableBloom' ] then
+        self.map:draw( self.snakes, self.food, self.gold, self.walls )
+    else
+        self.map:draw2( 'true', self.snakes, self.food, self.gold, self.walls )
+    end
 
-        -- Render the game board.
-        if config[ 'appearance' ][ 'enableBloom' ] then
-            self.map:draw( self.snakes, self.food, self.gold, self.walls )
-        else
-            self.map:draw2( 'true', self.snakes, self.food, self.gold, self.walls )
+    -- Draw logo top right.
+    love.graphics.setColor( 255, 96, 222, 204 )
+    love.graphics.setFont( logoFont )
+    love.graphics.printf(
+        "Mojave",
+        screenWidth * 0.8,
+        -10,
+        screenWidth - screenWidth * 0.8,
+        "center"
+    )
+
+    -- Imgui: Render right-side snake stats.
+    love.graphics.setColor( 255, 255, 255, 255 )
+    imgui.PushStyleVar( "WindowRounding", 0 )
+    imgui.SetNextWindowSize(
+        screenWidth - ( screenWidth * 0.8 ),
+        screenHeight - 60
+    )
+    imgui.SetNextWindowPos(
+        screenWidth - ( screenWidth * 0.2 ),
+        60
+    )
+    if imgui.Begin( "Snakes", nil, { "NoResize", "NoCollapse", "NoTitleBar" } ) then
+        imgui.Columns( 2, "gameStats", false )
+        imgui.Text( "Turn " .. self.turn )
+        imgui.NextColumn()
+        imgui.SetColumnOffset( -1, 75 )
+        if imgui.Button( "Map" ) then
+            self.map:print()
         end
-        
-        -- Draw logo top right.
-        love.graphics.setColor( 255, 96, 222, 204 )
-        love.graphics.setFont( logoFont )
-        love.graphics.printf(
-            "Mojave",
-            screenWidth*0.8,
-            -10,
-            screenWidth - screenWidth*0.8,
-            "center"
-        )
-        
-        -- Imgui: Render right-side snake stats.
-        love.graphics.setColor( 255, 255, 255, 255 )
-        imgui.PushStyleVar( "WindowRounding", 0 )
-        imgui.SetNextWindowSize(
-            screenWidth - ( screenWidth * 0.8 ),
-            screenHeight - 60
-        )
-        imgui.SetNextWindowPos(
-            screenWidth - ( screenWidth * 0.2 ),
-            60
-        )
-        if imgui.Begin( "Snakes", nil, { "NoResize", "NoCollapse", "NoTitleBar" } ) then
-            imgui.Columns( 2, "gameStats", false )
-            imgui.Text( "Turn " .. self.turn )
+        imgui.SameLine()
+        if imgui.Button( "Step" ) then
+            self:tick()
+        end
+        imgui.SameLine()
+        if self.running then
+            if imgui.Button( "Stop" ) then
+                self:stop()
+            end
+        else
+            if imgui.Button( "Play" ) then
+                self:start()
+            end
+        end
+        imgui.SameLine()
+        if imgui.Button( "Menu" ) then
+            imgui.OpenPopup( "ReturnMenu" )
+        end
+        if imgui.BeginPopupModal( "ReturnMenu", nil, { "NoResize" } ) then
+            imgui.Text( "Are you sure you want to return to the menu?\n\n" )
+            imgui.Separator()
+            if imgui.Button( "OK" ) then
+                self:stop()
+                BGM:stop()
+                activeGame = nil
+            end
+            imgui.SameLine()
+            if imgui.Button( "Cancel" ) then
+                imgui.CloseCurrentPopup()
+            end
+            imgui.EndPopup()
+        end
+        imgui.Columns(1)
+        imgui.Separator()
+        imgui.Text( "\n" )
+        imgui.Columns( 2, "snakeList", false )
+        for i = 1, #self.snakes do
+            imgui.Image(
+                self.snakes[i][ 'avatar' ],
+                self.snakes[i][ 'avatar' ]:getHeight() / self.snakes[i][ 'avatar' ]:getWidth() * 50,
+                self.snakes[i][ 'avatar' ]:getWidth() / self.snakes[i][ 'avatar' ]:getHeight() * 50
+            )
             imgui.NextColumn()
-            imgui.SetColumnOffset( -1, 75 )
-            if imgui.Button( "Map" ) then
-                self.map:print()
-            end
-            imgui.SameLine()
-            if imgui.Button( "Step" ) then
-                self:tick()
-            end
-            imgui.SameLine()
-            if self.running then
-                if imgui.Button( "Stop" ) then
-                    self:stop()
+            imgui.SetColumnOffset( -1, 60 );
+            imgui.TextWrapped( self.snakes[i].name )
+            if config[ 'gameplay' ][ 'enableGold' ] then
+                imgui.PushStyleColor(
+                    "PlotHistogram",
+                    self.snakes[i].color[1] / 255,
+                    self.snakes[i].color[2] / 255,
+                    self.snakes[i].color[3] / 255,
+                    1.0
+                )
+                imgui.ProgressBar(
+                    self.snakes[i].health / 100,
+                    imgui.GetColumnWidth()*0.5,
+                    15
+                )
+                imgui.PopStyleColor()
+                imgui.SameLine()
+                imgui.Text( "Age:" )
+                imgui.SameLine()
+                if self.snakes[i].alive then
+                    imgui.Text( self.snakes[i].age )
+                else
+                    imgui.TextColored( 1, 0, 0, 1, self.snakes[i].age )
                 end
+                imgui.ProgressBar(
+                    self.snakes[i].gold / config[ 'gameplay' ][ 'goldToWin' ],
+                    imgui.GetColumnWidth()*0.5,
+                    15,
+                    self.snakes[i].gold .. '/' .. config[ 'gameplay' ][ 'goldToWin' ]
+                )
+                imgui.SameLine()
+                imgui.Text( "Kills: " .. self.snakes[i].kills )
             else
-                if imgui.Button( "Play" ) then
-                    self:start()
-                end
-            end
-            imgui.SameLine()
-            if imgui.Button( "Menu" ) then
-                imgui.OpenPopup( "ReturnMenu" )
-            end
-            if imgui.BeginPopupModal( "ReturnMenu", nil, { "NoResize" } ) then
-                imgui.Text( "Are you sure you want to return to the menu?\n\n" )
-                imgui.Separator()
-                if imgui.Button( "OK" ) then
-                    self:stop()
-                    BGM:stop()
-                    activeGame = nil
+                imgui.PushStyleColor(
+                    "PlotHistogram",
+                    self.snakes[i].color[1] / 255,
+                    self.snakes[i].color[2] / 255,
+                    self.snakes[i].color[3] / 255,
+                    1.0
+                )
+                imgui.ProgressBar(
+                    self.snakes[i].health / 100,
+                    imgui.GetColumnWidth()*0.9,
+                    15
+                )
+                imgui.PopStyleColor()
+                imgui.Text( "Age:" )
+                imgui.SameLine()
+                if self.snakes[i].alive then
+                    imgui.Text( self.snakes[i].age )
+                else
+                    imgui.TextColored( 1, 0, 0, 1, self.snakes[i].age )
                 end
                 imgui.SameLine()
-                if imgui.Button( "Cancel" ) then
-                    imgui.CloseCurrentPopup()
-                end
-                imgui.EndPopup()
+                imgui.Text( "\tKills: " .. self.snakes[i].kills )
             end
-            imgui.Columns(1)
-            imgui.Separator()
             imgui.Text( "\n" )
-            imgui.Columns( 2, "snakeList", false )
-            for i = 1, #self.snakes do
-                imgui.Image(
-                    self.snakes[i][ 'avatar' ],
-                    self.snakes[i][ 'avatar' ]:getHeight() / self.snakes[i][ 'avatar' ]:getWidth() * 50,
-                    self.snakes[i][ 'avatar' ]:getWidth() / self.snakes[i][ 'avatar' ]:getHeight() * 50
-                )
-                imgui.NextColumn()
-                imgui.SetColumnOffset( -1, 60 );
-                imgui.TextWrapped( self.snakes[i].name )
-                if config[ 'gameplay' ][ 'enableGold' ] then
-                    imgui.PushStyleColor(
-                        "PlotHistogram",
-                        self.snakes[i].color[1] / 255,
-                        self.snakes[i].color[2] / 255,
-                        self.snakes[i].color[3] / 255,
-                        1.0
-                    )
-                    imgui.ProgressBar(
-                        self.snakes[i].health / 100,
-                        imgui.GetColumnWidth()*0.5,
-                        15
-                    )
-                    imgui.PopStyleColor()
-                    imgui.SameLine()
-                    imgui.Text( "Age:" )
-                    imgui.SameLine()
-                    if self.snakes[i].alive then
-                        imgui.Text( self.snakes[i].age )
-                    else
-                        imgui.TextColored( 1, 0, 0, 1, self.snakes[i].age )
-                    end
-                    imgui.ProgressBar(
-                        self.snakes[i].gold / config[ 'gameplay' ][ 'goldToWin' ],
-                        imgui.GetColumnWidth()*0.5,
-                        15,
-                        self.snakes[i].gold .. '/' .. config[ 'gameplay' ][ 'goldToWin' ] 
-                    )
-                    imgui.SameLine()
-                    imgui.Text( "Kills: " .. self.snakes[i].kills )
-                else
-                    imgui.PushStyleColor(
-                        "PlotHistogram",
-                        self.snakes[i].color[1] / 255,
-                        self.snakes[i].color[2] / 255,
-                        self.snakes[i].color[3] / 255,
-                        1.0
-                    )
-                    imgui.ProgressBar(
-                        self.snakes[i].health / 100,
-                        imgui.GetColumnWidth()*0.9,
-                        15
-                    )
-                    imgui.PopStyleColor()
-                    imgui.Text( "Age:" )
-                    imgui.SameLine()
-                    if self.snakes[i].alive then
-                        imgui.Text( self.snakes[i].age )
-                    else
-                        imgui.TextColored( 1, 0, 0, 1, self.snakes[i].age )
-                    end
-                    imgui.SameLine()
-                    imgui.Text( "\tKills: " .. self.snakes[i].kills )
-                end
-                imgui.Text( "\n" )
-                imgui.NextColumn()
-            end
-            imgui.Columns(1)
-            
+            imgui.NextColumn()
         end
-        imgui.End()
-        
+        imgui.Columns(1)
+
+        if imgui.Button( "Toggle Console" ) then
+            config[ 'system' ][ 'showConsole' ] = not config[ 'system' ][ 'showConsole' ]
+        end
+    end
+    imgui.End()
+
+    if config[ 'system' ][ 'showConsole' ] then
         -- Imgui: Render bottom game log.
         imgui.SetNextWindowSize(
             screenWidth - ( screenWidth * 0.2 ),
             screenHeight - ( screenHeight * 0.8 )
         )
+
         imgui.SetNextWindowPos(
             0,
             screenHeight - ( screenHeight * 0.2 )
         )
+
         if imgui.Begin( "Console", nil, { "NoResize", "NoCollapse", "NoTitleBar" } ) then
             for _, v in ipairs( self.console_history ) do
                 local level, ts, msg = v[1], v[2], v[3]
@@ -254,16 +265,20 @@ function Game:draw()
                 elseif level == 'FATAL' then
                     color = Util.normalizeRGBArray({ 255, 0, 0, 255 })
                 end
+
                 imgui.TextColored( color[1], color[2], color[3], color[4], prefix )
                 imgui.SameLine(135)
                 imgui.TextWrapped( msg )
             end
+
             if self.running then
                 imgui.SetScrollHere()
             end
         end
+
         imgui.End()
-        imgui.PopStyleVar()
+    end
+    imgui.PopStyleVar()
 end
 
 --- Gets the current state of the game, used in API calls to snakes
@@ -273,7 +288,7 @@ function Game:getState2018( slot )
 
     local mySnakes = {}
     local you = {}
-    
+
     for i = 1, #self.snakes do
         local positionZeroBasedCoords = {}
         for j = 1, #self.snakes[i].position do
@@ -302,7 +317,7 @@ function Game:getState2018( slot )
             table.insert( mySnakes, snakeObj )
         end
     end
-    
+
     local foodZeroBasedCoords = {}
     for i = 1, #self.food do
         table.insert( foodZeroBasedCoords, {
@@ -311,7 +326,7 @@ function Game:getState2018( slot )
             y = self.food[i][2] - 1
         })
     end
-    
+
     return {
         object = 'world',
         id = self.id,
@@ -339,7 +354,7 @@ function Game:getState2017( slot )
     local alive_snakes = {}
     local dead_snakes = {}
     local your_id = ''
-    
+
     for i = 1, #self.snakes do
         if self.snakes[i][ 'slot' ] == slot then
             your_id = self.snakes[i][ 'id' ]
@@ -364,12 +379,12 @@ function Game:getState2017( slot )
             table.insert( dead_snakes, snakeObj )
         end
     end
-    
+
     local foodZeroBasedCoords = {}
     for i = 1, #self.food do
         table.insert( foodZeroBasedCoords, { self.food[i][1]-1, self.food[i][2]-1 } )
     end
-    
+
     return {
         food = foodZeroBasedCoords,
         game_id = self.id,
@@ -388,7 +403,7 @@ end
 function Game:getState2016()
 
     local mySnakes = {}
-    
+
     for i = 1, #self.snakes do
         local positionZeroBasedCoords = {}
         for j = 1, #self.snakes[i].position do
@@ -415,27 +430,27 @@ function Game:getState2016()
             gold = self.snakes[i].gold
         })
     end
-    
+
     local foodZeroBasedCoords = {}
     for i = 1, #self.food do
         table.insert( foodZeroBasedCoords, { self.food[i][1]-1, self.food[i][2]-1 } )
     end
-    
+
     local goldZeroBasedCoords = {}
     for i = 1, #self.gold do
         table.insert( goldZeroBasedCoords, { self.gold[i][1]-1, self.gold[i][2]-1 } )
     end
-    
+
     local wallsZeroBasedCoords = {}
     for i = 1, #self.walls do
         table.insert( wallsZeroBasedCoords, { self.walls[i][1]-1, self.walls[i][2]-1 } )
     end
-    
+
     local mode = 'classic'
     if config[ 'gameplay' ][ 'enableWalls' ] or config[ 'gameplay' ][ 'enableGold' ] then
         mode = 'advanced'
     end
-    
+
     local gameState = {
         game = self.id,
         mode = mode,
@@ -449,7 +464,7 @@ function Game:getState2016()
         gameState[ 'walls' ] = wallsZeroBasedCoords
         gameState[ 'gold' ] = goldZeroBasedCoords
     end
-    
+
     return gameState
 
 end
@@ -477,7 +492,7 @@ function Game:log( msg, level )
     if ( not level ) or ( not levels[ level ] ) then
         level = 'info'
     end
-    if levels[level] >= config[ 'system' ][ 'logLevel' ] then 
+    if levels[level] >= config[ 'system' ][ 'logLevel' ] then
         level = string.upper( level )
         table.insert( self.console_history, { level, os.date( "%H:%M:%S" ), msg } )
     end
@@ -486,6 +501,8 @@ end
 --- Starts the game's update loop
 function Game:start()
     self:log( 'Game started.' )
+    print( inspect( self.snakes ) )
+    -- workerChannel:push( "run" )
     self.running = true
 end
 
@@ -497,10 +514,28 @@ end
 
 
 function Game:tick()
+    local update = workerUpdateChannel:pop()
+
+    if update then
+        local mUpdate = json.decode( update )
+        for id, snakeUpdate in pairs(mUpdate) do
+            for i = 1, #self.snakes do
+                if self.snakes[i][ 'slot' ] == snakeUpdate[ 'slot' ] then
+                    self.snakes[i][ 'taunt' ] = snakeUpdate[ 'taunt' ]
+                    self.snakes[i][ 'name' ] = snakeUpdate[ 'name' ]
+                    self.snakes[i]:setDirection( snakeUpdate[ 'direction' ] )
+
+                    print('moving ' .. self.snakes[i][ 'name' ] .. ' ' .. snakeUpdate[ 'direction' ])
+                end
+            end
+        end
+    else
+        return
+    end
 
     -- DEBUGGING - CHECK FOR THE IMPOSSIBLE
     if config[ 'system' ][ 'enableSanityChecks' ] then
-    
+
         -- MAKE SURE THE MAP STATE IS CORRECT FOR ALL SNAKES
         for i = 1, #self.snakes do
             if self.snakes[i][ 'alive' ] then
@@ -515,7 +550,7 @@ function Game:tick()
             end
         end
         for i = 1, #self.food do
-        
+
             -- a food is in the game but not on the map
             if self.map.tiles[ self.food[i][2] ][ self.food[i][1] ] ~= self.map.TILE_FOOD then
                 self:log( 'MAP STATE OUT OF SYNC - BREAKPOINT', 'error' )
@@ -523,7 +558,7 @@ function Game:tick()
                 self.running = false
                 return
             end
-            
+
             -- a snake and a food are occupying the same tile
             for j = 1, #self.snakes do
                 if self.snakes[j][ 'alive' ] then
@@ -542,7 +577,7 @@ function Game:tick()
             end
         end
         for i = 1, #self.gold do
-        
+
             -- a gold is in the game but not on the map
             if self.map.tiles[ self.gold[i][2] ][ self.gold[i][1] ] ~= self.map.TILE_GOLD then
                 self:log( 'MAP STATE OUT OF SYNC - BREAKPOINT', 'error' )
@@ -550,7 +585,7 @@ function Game:tick()
                 self.running = false
                 return
             end
-            
+
             -- a snake and a gold are occupying the same tile
             for j = 1, #self.snakes do
                 if self.snakes[j][ 'alive' ] then
@@ -569,7 +604,7 @@ function Game:tick()
             end
         end
         for i = 1, #self.walls do
-        
+
             -- a wall is in the game but not on the map
             if self.map.tiles[ self.walls[i][2] ][ self.walls[i][1] ] ~= self.map.TILE_WALL then
                 self:log( 'MAP STATE OUT OF SYNC - BREAKPOINT', 'error' )
@@ -577,7 +612,7 @@ function Game:tick()
                 self.running = false
                 return
             end
-            
+
             -- a snake and a wall are occupying the same tile
             for j = 1, #self.snakes do
                 if self.snakes[j][ 'alive' ] then
@@ -595,66 +630,23 @@ function Game:tick()
                 end
             end
         end
-    
+
     end
 
-    -- TICK TOCK (goes the game clock)    
+    -- TICK TOCK (goes the game clock)
     self.timer = 0
     self.turn = self.turn + 1
     self:log( string.format( 'TICK TOCK - TURN %s', self.turn ), 'trace' )
-    
-    -- Make API requests to each snake and get their next direction.
-    for i = 1, #self.snakes do
-        if self.snakes[i][ 'alive' ] then
-        
-            if self.snakes[i][ 'type' ] == 3 then
-                -- 2017 API
-                self.snakes[i]:api( 'move', json.encode( self:getState2017( self.snakes[i][ 'slot' ] ) ) )
-            elseif self.snakes[i][ 'type' ] == 6 then
-                -- 2018 API
-                self.snakes[i]:api( 'move', json.encode( self:getState2018( self.snakes[i][ 'slot' ] ) ) )
-            elseif self.snakes[i][ 'type' ] == 4 then
-                -- 2016 API
-                local endpoint = 'move'
-                if self.turn == 1 then
-                    endpoint = 'start'
-                end
-                self.snakes[i]:api( endpoint, json.encode( self:getState2016( self.snakes[i][ 'slot' ] ) ) )
-            elseif self.snakes[i][ 'type' ] == 5 then
-                local success, response_data = coroutine.resume(
-                    self.snakes[i].thread,
-                    self:getState2017( self.snakes[i][ 'slot' ] )
-                )
-                if not success then
-                    self:log( string.format( 'ROBOSNAKE: %s', response_data ), 'fatal' )
-                else
-                    if response_data[ 'move' ] ~= nil then
-                        self.snakes[i]:setDirection( response_data[ 'move' ] )
-                    end
-                    if response_data[ 'taunt' ] ~= nil then
-                        if response_data[ 'taunt' ] ~= self.snakes[i].taunt then
-                            self.snakes[i].taunt = response_data[ 'taunt' ]
-                            if config[ 'gameplay' ][ 'enableTaunts' ] then
-                                gameLog( string.format( '%s says: %s', self.snakes[i].name, self.snakes[i].taunt ) )
-                            end
-                        end
-                    end
-                    
-                end
-            end
-        end
-    end
-    
+
     -- Using their next direction, calculate their next position.
     for i = 1, #self.snakes do
         if self.snakes[i][ 'alive' ] then
             -- update age
             self.snakes[i].age = self.snakes[i].age + 1
-            
             self.snakes[i]:calculateNextPosition()
         end
     end
-    
+
     -- Check for a head-on-head collision.
     -- This is a bit trickier because we can't just look at the state of the
     -- tile (it will be free as neither snake is there yet). We have to manually
@@ -669,11 +661,11 @@ function Game:tick()
             then
                 -- Snakes i and j are moving into the same square.
                 self:log( string.format( '"%s" and "%s" have a head-to-head collision at [%s, %s]', self.snakes[i][ 'name' ], self.snakes[j][ 'name' ], self.snakes[i][ 'next_x' ], self.snakes[i][ 'next_y' ] ) )
-                
+
                 -- Which snake is longer?
                 local len_i = #self.snakes[i][ 'position' ]
                 local len_j = #self.snakes[j][ 'position' ]
-                
+
                 if len_i > len_j then
                     self:log( string.format( '"%s" is the smaller snake and dies.', self.snakes[j]['name'] ) )
                     if not self.snakes[j][ 'delayed_death' ] then
@@ -694,7 +686,7 @@ function Game:tick()
             end
         end
     end
-    
+
     -- For each snake, look at the tile at their next position.
     for i = 1, #self.snakes do
         if self.snakes[i][ 'alive' ] and not self.snakes[i][ 'delayed_death' ] then
@@ -713,13 +705,13 @@ function Game:tick()
                     self.snakes[i][ 'next_x' ],
                     self.snakes[i][ 'next_y' ]
                 )
-                
+
                 -- Wall? Kill the snake.
                 if tile == Map.TILE_WALL then
                     self:log( string.format( '"%s" next tile is WALL', self.snakes[i][ 'name' ] ), 'trace' )
                     self.snakes[i]:die()
                     self:log( string.format( '"%s" runs into a wall [%s, %s] and dies.', self.snakes[i][ 'name' ], self.snakes[i][ 'next_x' ], self.snakes[i][ 'next_y' ] ) )
-                
+
                 -- Food? Grow the snake.
                 elseif tile == Map.TILE_FOOD then
                     self:log( string.format( '"%s" next tile is FOOD', self.snakes[i][ 'name' ] ), 'trace' )
@@ -735,7 +727,7 @@ function Game:tick()
                             break
                         end
                     end
-                
+
                 -- Gold? Snake gets richer.
                 elseif tile == Map.TILE_GOLD then
                     self:log( string.format( '"%s" next tile is GOLD', self.snakes[i][ 'name' ] ), 'trace' )
@@ -751,7 +743,7 @@ function Game:tick()
                             break
                         end
                     end
-                
+
                 -- Another snake's body or tail?
                 elseif
                     tile >= Map[ 'TILE_SNEK_1' ] and
@@ -780,7 +772,7 @@ function Game:tick()
                             break
                         end
                     end
-                
+
                     if
                         self.snakes[i][ 'next_x' ] == otherSnakeTailX and
                         self.snakes[i][ 'next_y' ] == otherSnakeTailY
@@ -806,24 +798,24 @@ function Game:tick()
                         end
                         self:log( string.format( '"%s" runs into the body of "%s" at [%s, %s] and dies.', self.snakes[i][ 'name' ], otherSnakeName, self.snakes[i][ 'next_x' ], self.snakes[i][ 'next_y' ] ) )
                     end
-                    
+
                 -- Free? Snake's health drops.
                 else
                     self:log( string.format( '"%s" next tile is FREE', self.snakes[i][ 'name' ] ), 'trace' )
                     self.snakes[i].health = self.snakes[i].health - config[ 'gameplay' ][ 'healthPerTurn' ]
-                    
+
                 end
             end
-            
+
             -- If a snake's health is 0, that snake dies.
             if self.snakes[i].health == 0 then
                 self.snakes[i]:die()
                 self:log( string.format( '"%s" dies of starvation.', self.snakes[i][ 'name' ] ) )
             end
-            
+
         end
     end
-    
+
     -- Remove dead snakes from the map.
     for i = 1, #self.snakes do
         if self.snakes[i][ 'delayed_death' ] then
@@ -841,7 +833,7 @@ function Game:tick()
             end
         end
     end
-    
+
     -- Move all living snakes to their next position.
     -- Dead snakes can have their position updated (but not the map) so that the
     -- ghost will show where they died correctly.
@@ -851,7 +843,7 @@ function Game:tick()
                 self:log( string.format( '"%s" remove old tail from game at [%s, %s]', self.snakes[i][ 'name' ], self.snakes[i][ 'position' ][ #self.snakes[i][ 'position' ] ][1], self.snakes[i][ 'position' ][ #self.snakes[i][ 'position' ] ][2] ), 'trace' )
                 table.remove( self.snakes[i][ 'position' ] )
             else
-            
+
                 -- Remove last tail tile
                 if
                     #self.snakes[i][ 'position' ] > 1
@@ -873,7 +865,7 @@ function Game:tick()
                 self:log( string.format( '"%s" remove old tail from game at [%s, %s]', self.snakes[i][ 'name' ], self.snakes[i][ 'position' ][ #self.snakes[i][ 'position' ] ][1], self.snakes[i][ 'position' ][ #self.snakes[i][ 'position' ] ][2] ), 'trace' )
                 table.remove( self.snakes[i][ 'position' ] )
             end
-            
+
             -- Update new tail position to share direction with the body piece in front of it
             if #self.snakes[i][ 'position' ] > 0 then
                 if self.turn == 1 then
@@ -887,9 +879,9 @@ function Game:tick()
                     self.snakes[i][ 'position' ][1][3] = self.snakes[i][ 'direction' ]
                 end
             end
-            
-            
-            
+
+
+
         end
     end
     for i = 1, #self.snakes do
@@ -901,7 +893,7 @@ function Game:tick()
                     self.snakes[i][ 'next_y' ],
                     self.snakes[i][ 'direction' ]
                 })
-            else            
+            else
                 -- Move snake head to next position
                 self:log( string.format( '"%s" add new head to game and map at [%s, %s]', self.snakes[i][ 'name' ], self.snakes[i][ 'next_x' ], self.snakes[i][ 'next_y' ] ), 'trace' )
                 table.insert( self.snakes[i][ 'position' ], 1, {
@@ -915,7 +907,7 @@ function Game:tick()
                     Map[ 'TILE_SNEK_' .. self.snakes[i][ 'slot' ] ]
                 )
             end
-            
+
             -- If snake ate this turn, grow it
             if self.snakes[i][ 'eating' ] then
                 self:log( string.format( '"%s" duplicate tail in game at [%s, %s]', self.snakes[i][ 'name' ], self.snakes[i][ 'position' ][ #self.snakes[i][ 'position' ] ][1], self.snakes[i][ 'position' ][ #self.snakes[i][ 'position' ] ][2] ), 'trace' )
@@ -926,10 +918,10 @@ function Game:tick()
                 })
                 self.snakes[i][ 'eating' ] = false
             end
-            
+
         end
     end
-    
+
     -- Kill dead snakes for realzies.
     for i = 1, #self.snakes do
         if self.snakes[i][ 'delayed_death' ] then
@@ -937,7 +929,7 @@ function Game:tick()
             self.snakes[i][ 'alive' ] = false
         end
     end
-    
+
     -- If food strategy is fixed, and food was taken this turn, add more food.
     if config[ 'gameplay' ][ 'foodStrategy' ] == 1 then
         for i = 1, config[ 'gameplay' ][ 'totalFood' ] - #self.food do
@@ -946,7 +938,7 @@ function Game:tick()
             self:log( string.format( 'Placed food at [%s, %s]', food_x, food_y ), 'debug' )
         end
     end
-    
+
     -- If food strategy is growing, add more food if we pass the requisite number of ticks.
     if config[ 'gameplay' ][ 'foodStrategy' ] == 2 then
         if self.turn % config[ 'gameplay' ][ 'addFoodTurns' ] == 0 then
@@ -955,7 +947,7 @@ function Game:tick()
             self:log( string.format( 'Placed food at [%s, %s]', food_x, food_y ), 'debug' )
         end
     end
-    
+
     -- If walls are enabled, add a wall if we pass the requisite number of ticks.
     if
         config[ 'gameplay' ][ 'enableWalls' ]
@@ -977,7 +969,7 @@ function Game:tick()
         table.insert( self.walls, { wall_x, wall_y } )
         self:log( string.format( 'Placed wall at [%s, %s]', wall_x, wall_y ), 'debug' )
     end
-    
+
     -- If gold is enabled, and we pass the requisite number of ticks, and there is no gold on the game board right now, then add a gold.
     if
         config[ 'gameplay' ][ 'enableGold' ]
@@ -989,7 +981,7 @@ function Game:tick()
             self:log( string.format( 'Placed gold at [%s, %s]', gold_x, gold_y ), 'debug' )
         end
     end
-    
+
     -- Count how many snakes are still alive.
     local livingSnakes = 0
     local winner = ''
@@ -1016,7 +1008,7 @@ function Game:tick()
             return
         end
     end
-    
+
     -- If gold is enabled, and any snake has reached the maximum gold, end the game.
     for i = 1, #self.snakes do
         if self.snakes[i].gold >= config[ 'gameplay' ][ 'goldToWin' ] then
@@ -1027,7 +1019,6 @@ function Game:tick()
     end
 
 end
-
 
 --- Update Loop
 -- @param dt Delta Time
@@ -1043,13 +1034,43 @@ function Game:update( dt )
             BGM:stop()
         end
     end
-    
+
     if self.running then
         self.timer = self.timer + dt
         if self.timer < config[ 'gameplay' ][ 'gameSpeed' ] then
             return
         else
             self:tick()
+
+            local boardState = {
+                id = self.id,
+                food = self.food,
+                height = config[ 'gameplay' ][ 'boardHeight' ],
+                snakes = {},
+                turn = self.turn,
+                width = config[ 'gameplay' ][ 'boardWidth' ]
+            }
+
+            local error = updateThread:getError()
+            assert( not error, error )
+
+            for i = 1, #self.snakes do
+                local snake = self.snakes[i]
+                if snake[ 'alive' ] then
+                    boardState[ 'snakes' ][i] = {
+                        id = snake[ 'id' ],
+                        health = snake[ 'health' ],
+                        name = snake[ 'name' ],
+                        slot = snake[ 'slot' ],
+                        taunt = snake[ 'taunt' ],
+                        type = snake[ 'type' ],
+                        position = snake[ 'position' ],
+                        url = snake[ 'url' ]
+                    }
+                end
+            end
+
+            workerChannel:push( json.encode( boardState ) )
         end
     end
 

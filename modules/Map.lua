@@ -33,7 +33,7 @@ local function rotatedRectangle( mode, x, y, w, h, rx, ry, segments, r, ox, oy )
 	oy = oy or h / 2
 	love.graphics.push()
     love.graphics.translate( x + ox, y + oy )
-    love.graphics.rotate( -r )
+    if config[ 'appearance' ][ 'rotateFood' ] then love.graphics.rotate( -r ) end
     love.graphics.rectangle( mode, -ox, -oy, w, h, rx, ry, segments )
 	love.graphics.pop()
 end
@@ -43,45 +43,73 @@ end
 -- @param table opt A table containing initialization options
 -- @return Map
 function Map.new( opt )
-    
+
     local self = setmetatable( {}, Map )
     local opt = opt or {}
-    
-    -- screenWidth and screenHeight: Size of the window
-    -- pixelWidth and pixelHeight: Size of the board
-    local screenWidth, screenHeight = love.graphics.getDimensions()
-    self.pixelWidth = screenWidth * 0.8
-    self.pixelHeight = screenHeight * 0.8
-    
-    self.bloom = love.graphics.newCanvas( self.pixelWidth/4, self.pixelHeight/4 )
-    self.hblur = love.graphics.newCanvas( self.pixelWidth/4, self.pixelHeight/4 )
-    self.vblur = love.graphics.newCanvas( self.pixelWidth/4, self.pixelHeight/4 )
-    self.bloomscene = love.graphics.newCanvas( self.pixelWidth, self.pixelHeight )
-    self.scene = love.graphics.newCanvas( self.pixelWidth, self.pixelHeight )
-    
-    self.vxScale = self.pixelWidth / bgVignette:getWidth()
-    self.vyScale = self.pixelHeight / bgVignette:getHeight()
-    
+
     -- How many tiles/squares to fit into pixelWidth/pixelHeight
     self.numTilesX = opt.width or 25
     self.numTilesY = opt.height or 15
-    
-    -- Compute the width and height of each tile
-    self.tileWidth = self.pixelWidth / self.numTilesX
-    self.tileHeight = self.pixelHeight / self.numTilesY
-    
-    -- The "cell" is the part of each tile that we will actually draw
-    -- the rest of the tile is reserved to allow the background to show through
-    local outlineSize = opt.outlineSize or 1
-    self.cellWidth = self.tileWidth - outlineSize
-    self.cellHeight = self.tileHeight - outlineSize
-    
+    self.outlineSize = opt.outlineSize or 1
+
+    self:updateDimensions()
+
     -- Generate the tile grid
     self.tiles = {}
     self:clear()
-    
+
     return self
-    
+
+end
+
+function Map:updateDimensions()
+
+    -- screenWidth and screenHeight: Size of the window
+    -- pixelWidth and pixelHeight: Size of the board
+    local screenWidth, screenHeight = love.graphics.getDimensions()
+    local boardSize = config[ 'system' ][ 'showConsole' ] and 0.8 or 1
+
+    if self.screenWidth == screenWidth and self.screenHeight == screenHeight then
+        return
+    end
+
+    print('Screen dimensions changed: ' .. screenWidth .. 'x' .. screenHeight .. ' updating board dimensions')
+
+    self.screenWidth = screenWidth
+    self.screenHeight = screenHeight
+
+    if screenWidth > screenHeight then
+        self.pixelHeight = screenHeight * boardSize
+        self.pixelWidth = self.pixelHeight
+        self.leftMargin = ((screenWidth * 0.8) - self.pixelWidth) / 2 -- sidebar is 20% if the width
+
+        -- Compute the width and height of each tile
+        self.tileHeight = self.pixelHeight / self.numTilesY
+        self.tileWidth = self.tileHeight
+    else
+        self.pixelWidth = screenWidth * boardSize
+        self.pixelHeight = self.pixelWidth
+        self.leftMargin = 0
+
+        -- Compute the width and height of each tile
+        self.tileWidth = self.pixelWidth / self.numTilesX
+        self.tileHeight = self.tileWidth
+    end
+
+    self.bloom = love.graphics.newCanvas( self.pixelWidth / 4, self.pixelHeight / 4 )
+    self.hblur = love.graphics.newCanvas( self.pixelWidth / 4, self.pixelHeight / 4 )
+    self.vblur = love.graphics.newCanvas( self.pixelWidth / 4, self.pixelHeight / 4 )
+    self.bloomscene = love.graphics.newCanvas( self.pixelWidth, self.pixelHeight )
+    self.scene = love.graphics.newCanvas( self.pixelWidth, self.pixelHeight )
+
+    self.vxScale = self.pixelWidth / bgVignette:getWidth()
+    self.vyScale = self.pixelHeight / bgVignette:getHeight()
+
+    -- The "cell" is the part of each tile that we will actually draw
+    -- the rest of the tile is reserved to allow the background to show through
+    self.cellWidth = self.tileWidth - self.outlineSize
+    self.cellHeight = self.tileHeight - self.outlineSize
+
 end
 
 function Map:clear()
@@ -96,7 +124,7 @@ function Map:clear()
 end
 
 function Map:print()
-    
+
     local chr = ''
     local str = ''
     for y = 1, self.numTilesY do
@@ -135,10 +163,12 @@ function Map:print()
         str = str .. "\n"
     end
     gameLog( str, 'info' )
-    
+
 end
 
 function Map:draw( mySnakes, food, gold, walls )
+
+    self:updateDimensions()
 
     -- clear canvases
     love.graphics.setCanvas( self.bloom, self.hblur, self.vblur )
@@ -147,7 +177,7 @@ function Map:draw( mySnakes, food, gold, walls )
 	love.graphics.clear()
 	love.graphics.setCanvas()
     love.graphics.clear()
-	
+
 	-- base, quarter scale base without bg
 	love.graphics.setCanvas( self.scene )
 	self:draw2( true, mySnakes, food, gold, walls )
@@ -156,7 +186,7 @@ function Map:draw( mySnakes, food, gold, walls )
     love.graphics.setColor( 255, 255, 255, 255 )
     local blendmode, blendalphamode = love.graphics.getBlendMode()
     love.graphics.setBlendMode( "alpha", "premultiplied" )
-    
+
     -- apply bloom effect
     love.graphics.push()
     love.graphics.scale( 0.25, 0.25 )
@@ -164,17 +194,17 @@ function Map:draw( mySnakes, food, gold, walls )
     love.graphics.setShader( Shaders.bloom )
     love.graphics.draw( self.bloomscene )
     love.graphics.pop()
-    
+
     -- apply horizontal blur
     love.graphics.setCanvas( self.hblur )
     love.graphics.setShader( Shaders.horizontalblur )
     love.graphics.draw( self.bloom )
-    
+
     -- apply vertical blur
     love.graphics.setCanvas( self.vblur )
     love.graphics.setShader( Shaders.verticalblur )
     love.graphics.draw( self.hblur )
-    
+
     -- final scene
     love.graphics.setCanvas()
     Shaders.combine:send( "bloomtex", self.vblur )
@@ -187,7 +217,9 @@ end
 
 --- Draws the map to the screen.
 function Map:draw2( drawgrid, mySnakes, food, gold, walls )
-    
+
+    self:updateDimensions()
+
     if drawgrid then
         -- Draw the grid
         for i = 1, self.numTilesY do
@@ -207,21 +239,21 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
                 end
                 love.graphics.rectangle(
                     "fill",
-                    1 + ((j-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
-                    1 + ((i-1) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
+                    self.leftMargin + 1 + ((j - 1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
+                    1 + ((i - 1) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
                     self.cellWidth,
                     self.cellHeight
                 )
             end
         end
-        
+
         -- vignette
         if config[ 'appearance' ][ 'enableVignette' ] then
             love.graphics.setColor( 255, 255, 255, 255 )
             love.graphics.draw( bgVignette, 0, 0, 0, self.vxScale, self.vyScale )
         end
     end
-    
+
     -- Walls
     love.graphics.setColor(
         Util.denormalizeRGBArray(
@@ -231,13 +263,13 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
     for i = 1, #walls do
         love.graphics.rectangle(
             "fill",
-            1 + ((walls[i][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
+            self.leftMargin + 1 + ((walls[i][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
             1 + ((walls[i][2]-1) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
             self.cellWidth,
             self.cellHeight
         )
     end
-    
+
     -- Food
     love.graphics.setColor(
         Util.denormalizeRGBArray(
@@ -247,7 +279,7 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
     for i = 1, #food do
         rotatedRectangle(
             "fill",
-            1 + ((food[i][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
+            self.leftMargin + 1 + ((food[i][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
             1 + ((food[i][2]-1) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
             self.cellWidth,
             self.cellHeight,
@@ -257,7 +289,7 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
             math.fmod(love.timer.getTime(), 2 * math.pi)
         )
     end
-    
+
     -- Gold
     love.graphics.setColor(
         Util.denormalizeRGBArray(
@@ -267,7 +299,7 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
     for i = 1, #gold do
         rotatedRectangle(
             "fill",
-            1 + ((gold[i][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
+            self.leftMargin + 1 + ((gold[i][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
             1 + ((gold[i][2]-1) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
             self.cellWidth,
             self.cellHeight,
@@ -277,7 +309,7 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
             math.fmod(love.timer.getTime(), 2 * math.pi)
         )
     end
-    
+
     -- Warps?
     -- Reverse?
     --[[love.graphics.setColor(255,96,222,234)
@@ -292,11 +324,11 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
         nil,
         math.fmod(love.timer.getTime(), 2 * math.pi)
     )]]
-    
+
     -- Sneks
     for i = 1, #mySnakes do
         for j = 1, #mySnakes[i][ 'position' ] do
-        
+
             -- dead snakes are completely translucent
             -- living snakes get slightly translucent from their head to their tail
             local alpha = 32
@@ -308,9 +340,9 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
                 end
             end
             love.graphics.setColor( mySnakes[i][ 'color' ][1], mySnakes[i][ 'color' ][2], mySnakes[i][ 'color' ][3], alpha )
-            
+
             if j ~= 1 and j ~= #mySnakes[i][ 'position' ] then
-            
+
                 if
                     mySnakes[i][ 'position' ][j][1] == mySnakes[i][ 'position' ][ #mySnakes[i][ 'position' ] ][1]
                     and mySnakes[i][ 'position' ][j][2] == mySnakes[i][ 'position' ][ #mySnakes[i][ 'position' ] ][2]
@@ -320,15 +352,15 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
                     -- body
                     love.graphics.rectangle(
                         "fill",
-                        1 + ((mySnakes[i][ 'position' ][j][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
+                        self.leftMargin + 1 + ((mySnakes[i][ 'position' ][j][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
                         1 + ((mySnakes[i][ 'position' ][j][2]-1) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
                         self.cellWidth,
                         self.cellHeight
                     )
                 end
-            
+
             elseif j == #mySnakes[i][ 'position' ] and j ~= 1 then
-            
+
                 if
                     mySnakes[i][ 'position' ][j][1] == mySnakes[i][ 'position' ][1][1]
                     and mySnakes[i][ 'position' ][j][2] == mySnakes[i][ 'position' ][1][2]
@@ -354,7 +386,7 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
                     end
                     love.graphics.draw(
                         mySnakes[i][ 'tail' ],
-                        1 + ((mySnakes[i][ 'position' ][j][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2) + ( self.cellWidth / 2 ),
+                        self.leftMargin + 1 + ((mySnakes[i][ 'position' ][j][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2) + ( self.cellWidth / 2 ),
                         1 + ((mySnakes[i][ 'position' ][j][2]-1) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2) + ( self.cellHeight / 2 ),
                         r,
                         xs,
@@ -363,9 +395,9 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
                         mySnakes[i][ 'tail' ]:getHeight() / 2
                     )
                 end
-            
+
             elseif j == 1 then
-            
+
                 -- head
                 if
                     mySnakes[i][ 'position' ][j][1] < 1 or
@@ -394,7 +426,7 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
                     end
                     love.graphics.draw(
                         mySnakes[i][ 'head' ],
-                        1 + ((mySnakes[i][ 'position' ][j][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2) + ( self.cellWidth / 2 ),
+                        self.leftMargin + 1 + ((mySnakes[i][ 'position' ][j][1]-1) * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2) + ( self.cellWidth / 2 ),
                         1 + ((mySnakes[i][ 'position' ][j][2]-1) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2) + ( self.cellHeight / 2 ),
                         r,
                         xs,
@@ -407,10 +439,10 @@ function Map:draw2( drawgrid, mySnakes, food, gold, walls )
             end
         end
     end
-	
+
 	-- reset brush color
 	love.graphics.setColor( 255, 255, 255, 255 )
-    
+
 end
 
 --- Returns the value of a tile
@@ -433,19 +465,19 @@ end
 -- @param value The value to set the tile to
 -- @return The x and y coordinates that were selected
 -- @see http://stackoverflow.com/a/398532/2578262
-function Map:setTileAtFreeLocationNearCenter( value )    
+function Map:setTileAtFreeLocationNearCenter( value )
     local cx = math.ceil( self.numTilesX / 2 )
     local cy = math.ceil( self.numTilesY / 2 )
     local direction = 1
     local distance = 1
-    
+
     if self.tiles[cy][cx] == Map.TILE_FREE then
         self.tiles[cy][cx] = value
         return cx, cy
     end
-    
+
     while ( math.abs(cx) <= self.numTilesX or math.abs(cy) <= self.numTilesY ) do
-    
+
         for i = 1, distance do
             cx = cx + direction
             if ( math.abs(cx) <= self.numTilesX and math.abs(cy) <= self.numTilesY ) then
@@ -455,7 +487,7 @@ function Map:setTileAtFreeLocationNearCenter( value )
                 end
             end
         end
-        
+
         for i = 1, distance do
             cy = cy + direction
             if ( math.abs(cx) <= self.numTilesX and math.abs(cy) <= self.numTilesY ) then
@@ -465,13 +497,13 @@ function Map:setTileAtFreeLocationNearCenter( value )
                 end
             end
         end
-        
+
         distance = distance + 1
         direction = direction * -1
     end
-    
+
     error( 'No free spaces available on the game board' )
-         
+
 end
 
 --- Sets a tile of a specific type at a random, free location
@@ -489,7 +521,7 @@ function Map:setTileAtRandomFreeLocation( value, border )
             y = love.math.random( self.numTilesY )
         end
     until self.tiles[y][x] == Map.TILE_FREE
-    
+
     self.tiles[y][x] = value
     return x, y
 end
@@ -499,7 +531,7 @@ end
 -- @oaram badCoords A table of coordinates where this tile cannot be placed
 -- @return The x and y coordinates that were selected
 function Map:setTileAtRandomSafeLocation( value, badCoords )
-    
+
     local x, y, not_bad_coord, tile_is_free
     repeat
         not_bad_coord = true
@@ -515,7 +547,7 @@ function Map:setTileAtRandomSafeLocation( value, badCoords )
             tile_is_free = false
         end
     until not_bad_coord == true and tile_is_free == true
-    
+
     self.tiles[y][x] = value
     return x, y
 end

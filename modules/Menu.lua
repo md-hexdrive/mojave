@@ -21,7 +21,7 @@ function Menu.update( dt )
             BGM:stop()
         end
     end
-    
+
     -- Check fullscreen state
     if config[ 'appearance' ][ 'fullscreen' ] ~= love.window.getFullscreen() then
         love.window.setFullscreen( config[ 'appearance' ][ 'fullscreen' ] )
@@ -49,12 +49,12 @@ function Menu.draw()
     love.graphics.setFont( logoFont )
     love.graphics.printf( "Mojave", 0, 0, screenWidth, "center" )
     love.graphics.setColor( 255, 255, 255, 255 )
-    
+
     -- Footer text
     love.graphics.setFont( defaultFont )
     love.graphics.printf( "©2017-2018 Scott Small", 0, screenHeight*0.95, screenWidth, "center" )
     love.graphics.print( MOJAVE_VERSION, screenWidth*0.975, screenHeight*0.975 )
-    
+
     -- Render UI
     imgui.SetNextWindowSize(
         screenWidth - ( screenWidth * 0.1 ),
@@ -65,10 +65,10 @@ function Menu.draw()
         screenHeight - ( screenHeight * 0.675 )
     )
     if imgui.Begin( "Menu", nil, { "NoResize", "NoCollapse", "NoTitleBar" } ) then
-        
+
         imgui.BeginChild( "Sub1", imgui.GetWindowContentRegionWidth() * 0.5, 0 )
         imgui.PushStyleVar( "ItemSpacing", 8, 24 )
-        
+
         -- Menu Buttons
         local buttonWidth = 200
         local buttonX = ( imgui.GetWindowWidth() * 0.5 ) - ( buttonWidth / 2 )
@@ -105,9 +105,9 @@ function Menu.draw()
         if imgui.Button( "Exit", 200, 50 ) then
             imgui.OpenPopup( "Exit" )
         end
-        
+
         imgui.PopStyleVar()
-        
+
         -- Exit Confirmation Dialog
         if imgui.BeginPopupModal( "Exit", nil, { "NoResize" } ) then
             imgui.Text( "Are you sure you want to exit the game?\n\n" )
@@ -121,17 +121,17 @@ function Menu.draw()
             end
             imgui.EndPopup()
         end
-        
+
         if showTestWindow then
             showTestWindow = imgui.ShowTestWindow( true )
         end
-        
+
         -- Options
         imgui.EndChild()
         imgui.SameLine()
         imgui.BeginChild( "Sub2", imgui.GetWindowContentRegionWidth() * 0.5, 0)
         if rightPane == 'options' then
-        
+
             -- Appearance Options
             if imgui.CollapsingHeader( "Appearance", { "DefaultOpen" } ) then
                 unused,
@@ -193,9 +193,10 @@ function Menu.draw()
                 unused, config[ 'appearance' ][ 'enableBloom' ] = imgui.Checkbox( "Bloom Filter", config[ 'appearance' ][ 'enableBloom' ] )
                 unused, config[ 'appearance' ][ 'enableVignette' ] = imgui.Checkbox( "Vignette", config[ 'appearance' ][ 'enableVignette' ] )
                 unused, config[ 'appearance' ][ 'fadeOutTails' ] = imgui.Checkbox( "Fade Out Tails", config[ 'appearance' ][ 'fadeOutTails' ] )
+                unused, config[ 'appearance' ][ 'rotateFood' ] = imgui.Checkbox( "Rotating Food", config[ 'appearance' ][ 'rotateFood' ] )
                 imgui.Text( "\n" )
             end
-            
+
             -- Audio Options
             if imgui.CollapsingHeader( "Audio", { "DefaultOpen" } ) then
                 unused, config[ 'audio' ][ 'enableMusic' ] = imgui.Checkbox( "Music", config[ 'audio' ][ 'enableMusic' ] )
@@ -203,7 +204,7 @@ function Menu.draw()
                 unused, config[ 'audio' ][ 'enableSFX' ] = imgui.Checkbox( "Sound Effects", config[ 'audio' ][ 'enableSFX' ] )
                 imgui.Text( "\n" )
             end
-            
+
             -- Gameplay Options
             if imgui.CollapsingHeader( "Gameplay", { "DefaultOpen" } ) then
                 unused, config[ 'gameplay' ][ 'boardWidth' ] = imgui.InputInt( "Board Width", config[ 'gameplay' ][ 'boardWidth' ] )
@@ -230,18 +231,21 @@ function Menu.draw()
                     unused, config[ 'gameplay' ][ 'wallTurnStart' ] = imgui.InputInt( "Start Walls at turn X", config[ 'gameplay' ][ 'wallTurnStart' ] )
                 end
                 unused, config[ 'gameplay' ][ 'enableTaunts' ] = imgui.Checkbox( "Enable Taunts", config[ 'gameplay' ][ 'enableTaunts' ] )
+                unused, config[ 'gameplay' ][ 'pauseOnDeath' ] = imgui.Checkbox( "Pause on Snake Death", config[ 'gameplay' ][ 'pauseOnDeath' ] )
                 imgui.Text( "\n" )
             end
-            
+
             -- System Options
             if imgui.CollapsingHeader( "System", { "DefaultOpen" } ) then
                 unused, config[ 'system' ][ 'logLevel' ] = imgui.Combo( "Log Level", config[ 'system' ][ 'logLevel' ], { "trace", "debug", "info", "warn", "error", "fatal" }, 6 )
                 unused, config[ 'system' ][ 'roboRecursionDepth' ] = imgui.InputInt( "Robosnake Recursion Depth", config[ 'system' ][ 'roboRecursionDepth' ] )
                 unused, config[ 'system' ][ 'enableSanityChecks' ] = imgui.Checkbox( "Enable Sanity Checks", config[ 'system' ][ 'enableSanityChecks' ] )
                 unused, config[ 'system' ][ 'pauseNewGames' ] = imgui.Checkbox( "Start New Games Paused", config[ 'system' ][ 'pauseNewGames' ] )
+                unused, config[ 'system' ][ 'showConsole' ] = imgui.Checkbox( "Show Console", config[ 'system' ][ 'showConsole' ] )
+                unused, config[ 'system' ][ 'showSplash' ] = imgui.Checkbox( "Show Splash Screen", config[ 'system' ][ 'showSplash' ] )
                 imgui.Text( "\n" )
             end
-            
+
             -- Save Options button and dialog
             if imgui.Button( "Save Changes" ) then
                 local ok = love.filesystem.write( 'config.json', json.encode( config ) )
@@ -262,7 +266,7 @@ function Menu.draw()
                 end
                 imgui.EndPopup()
             end
-            
+
             -- Revert Options button and dialog
             imgui.SameLine()
             if imgui.Button( "Revert Changes" ) then
@@ -284,70 +288,60 @@ function Menu.draw()
                 end
                 imgui.EndPopup()
             end
-        
-        -- Snakes    
+
+        -- Snakes
         elseif rightPane == 'snakes' then
-            
-            imgui.Columns( 2, 'snakesInner', false )
-            imgui.PushStyleVar( "ItemSpacing", 8, 24 )
-            imgui.Text( "" )
-            for i = 1, 5 do
-                imgui.Image(
-                    snakeHeads[i],                                          -- image
-                    snakeHeads[i]:getHeight() / snakeHeads[i]:getWidth() * 50,  -- width
-                    snakeHeads[i]:getWidth() / snakeHeads[i]:getHeight() * 50   -- height  
-                )
-                imgui.SameLine()
-                local buttonText = "Slot " .. i .. "\n"
-                if snakes[i]['type'] == 2 then
-                    buttonText = buttonText .. 'human'
-                elseif snakes[i]['type'] == 3 then
-                    buttonText = buttonText .. "api2017\n" .. snakes[i]['url']
-                elseif snakes[i]['type'] == 4 then
-                    buttonText = buttonText .. "api2016\n" .. snakes[i]['url']
-                elseif snakes[i]['type'] == 5 then
-                    buttonText = buttonText .. 'robosnake'
-                elseif snakes[i]['type'] == 6 then
-                    buttonText = buttonText .. "api2018\n" .. snakes[i]['url']
-                else
-                    buttonText = buttonText .. 'empty'
+            local columns = 2
+            local groupSize = math.floor(#snakes / columns)
+
+
+            imgui.Columns( columns, 'snakesInner', false )
+
+            for column = 1, columns do
+
+                imgui.PushStyleVar( "ItemSpacing", 8, 24 )
+                imgui.Text( "" )
+
+                for index = 1, groupSize do
+                    local mIndex = (column - 1) * groupSize + index
+                    local snake = snakes[mIndex]
+
+                    imgui.Image(
+                        snakeHeads[mIndex],                                              -- image
+                        snakeHeads[mIndex]:getHeight() / snakeHeads[mIndex]:getWidth() * 50,  -- width
+                        snakeHeads[mIndex]:getWidth() / snakeHeads[mIndex]:getHeight() * 50   -- height,
+                    )
+
+                    imgui.SameLine()
+                    local buttonText = "Slot " .. mIndex .. "\n"
+                    if snake['type'] == 2 then
+                        buttonText = buttonText .. 'human'
+                    elseif snake['type'] == 3 then
+                        buttonText = buttonText .. "api2017\n" .. snake['url']
+                    elseif snake['type'] == 4 then
+                        buttonText = buttonText .. "api2016\n" .. snake['url']
+                    elseif snake['type'] == 5 then
+                        buttonText = buttonText .. 'robosnake'
+                    elseif snake['type'] == 6 then
+                        buttonText = buttonText .. "api2018\n" .. snake['url']
+                    else
+                        buttonText = buttonText .. 'empty'
+                    end
+
+                    if imgui.Button( buttonText, 200, 50 ) then
+                        imgui.OpenPopup( "EditSnake" .. mIndex )
+                    end
                 end
-                if imgui.Button( buttonText, 200, 50 ) then
-                    imgui.OpenPopup( "EditSnake" .. i )
-                end
-            end
-            imgui.PopStyleVar()
-            imgui.NextColumn()
-            imgui.PushStyleVar( "ItemSpacing", 8, 24 )
-            imgui.Text( "" )
-            for i = 6, 10 do
-                imgui.Image(
-                    snakeHeads[i],                                          -- image
-                    snakeHeads[i]:getHeight() / snakeHeads[i]:getWidth() * 50,  -- width
-                    snakeHeads[i]:getWidth() / snakeHeads[i]:getHeight() * 50   -- height  
-                )
-                imgui.SameLine()
-                local buttonText = "Slot " .. i .. "\n"
-                if snakes[i]['type'] == 2 then
-                    buttonText = buttonText .. 'human'
-                elseif snakes[i]['type'] == 3 then
-                    buttonText = buttonText .. "api2017\n" .. snakes[i]['url']
-                elseif snakes[i]['type'] == 4 then
-                    buttonText = buttonText .. "api2016\n" .. snakes[i]['url']
-                elseif snakes[i]['type'] == 5 then
-                    buttonText = buttonText .. 'robosnake'
-                elseif snakes[i]['type'] == 6 then
-                    buttonText = buttonText .. "api2018\n" .. snakes[i]['url']
-                else
-                    buttonText = buttonText .. 'empty'
-                end
-                if imgui.Button( buttonText, 200, 50 ) then
-                    imgui.OpenPopup( "EditSnake" .. i )
+
+                if column ~= columns then
+                    imgui.PopStyleVar()
+                    imgui.NextColumn()
                 end
             end
+
             imgui.PopStyleVar()
             imgui.Columns(1)
-            
+
             -- Edit snake trigger
             -- is there a better way to implement this?!?
             -- gui programming is hard
@@ -428,8 +422,8 @@ Gifload
 Copyright ©2016 Pedro Gimeno Fortea
 https://github.com/pgimeno/gifload
 
-inspect.lua  
-Copyright ©2013 Enrique García Cota  
+inspect.lua
+Copyright ©2013 Enrique García Cota
 https://github.com/kikito/inspect.lua
 
 LÖVE
@@ -447,8 +441,8 @@ http://www.fontspace.com/new-typography/monoton
 Music and Sound Effects by Eric Matyas
 http://www.soundimage.org
 
-Robosnake  
-Copyright (c) 2017 Redbrick Technologies, Inc.  
+Robosnake
+Copyright (c) 2017 Redbrick Technologies, Inc.
 https://github.com/rdbrck/bountysnake2017
 
 Vignette Image
