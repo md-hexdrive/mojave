@@ -17,11 +17,11 @@ Snake.TYPES = {
 
 Snake.ELIMINATION_CAUSES = {
     NotEliminated = "",
-	EliminatedByCollision = "snake-collision",
-	EliminatedBySelfCollision = "snake-self-collision",
-	EliminatedByOutOfHealth = "out-of-health",
-	EliminatedByHeadToHeadCollision = "head-collision",
-	EliminatedByOutOfBounds = "wall-collision",
+    EliminatedByCollision = "snake-collision",
+    EliminatedBySelfCollision = "snake-self-collision",
+    EliminatedByOutOfHealth = "out-of-health",
+    EliminatedByHeadToHeadCollision = "head-collision",
+    EliminatedByOutOfBounds = "wall-collision",
     EliminatedBySquad = "squad-eliminated"
 }
 
@@ -112,7 +112,16 @@ function Snake:refresh()
 
         -- If the api version is not 0, then grab their head/tail/color
         if self.apiversion ~= 0 then
-            self.color = data.color
+            if (not data.color) or (data.color == '') then
+                self.color = {
+                    love.math.random(0, 255) / 255,
+                    love.math.random(0, 255) / 255,
+                    love.math.random(0, 255) / 255,
+                    1
+                }
+            else
+                self.color = data.color
+            end
             if snakeHeads[data.head] then
                 self.headSrc = data.head
             else

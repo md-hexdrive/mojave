@@ -84,16 +84,16 @@ function Board:drawBloom( state )
 
     -- clear canvases
     love.graphics.setCanvas( self.bloom, self.hblur, self.vblur )
-	love.graphics.clear(0, 0, 0, 1)
-	love.graphics.setCanvas( self.bloomscene, self.scene )
-	love.graphics.clear(0, 0, 0, 1)
-	love.graphics.setCanvas()
+    love.graphics.clear(0, 0, 0, 1)
+    love.graphics.setCanvas( self.bloomscene, self.scene )
+    love.graphics.clear(0, 0, 0, 1)
+    love.graphics.setCanvas()
     love.graphics.clear(0, 0, 0, 1)
 
-	-- base, quarter scale base without bg
-	love.graphics.setCanvas( self.scene )
-	self:drawRaw( state, true )
-	love.graphics.setCanvas( self.bloomscene )
+    -- base, quarter scale base without bg
+    love.graphics.setCanvas( self.scene )
+    self:drawRaw( state, true )
+    love.graphics.setCanvas( self.bloomscene )
     self:drawRaw( state, false )
     love.graphics.setColor( 1, 1, 1, 1 )
     local blendmode, blendalphamode = love.graphics.getBlendMode()
@@ -304,13 +304,59 @@ function Board:drawRaw( state, draw_grid )
                     sa = ( ( ( ( #snake.body - i ) * 150 ) / #snake.body ) + 105 ) / 255
                 end
                 love.graphics.setColor(sr, sg, sb, sa)
-                love.graphics.rectangle(
-                    "fill",
-                    1 + (snake.body[i].x * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
-                    1 + ((self.numTilesY - 1 - snake.body[i].y) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
-                    self.cellWidth,
-                    self.cellHeight
-                )
+
+                --Locate the previous and next body position
+                local px = snake.body[i-1].x - snake.body[i].x
+                local py = snake.body[i-1].y - snake.body[i].y
+                local ax = snake.body[i].x - snake.body[i+1].x
+                local ay = snake.body[i].y - snake.body[i+1].y
+
+                if (px == ax and py == ay) or (px + ax == 0) or (py + ay == 0) or (not config.appearance.curveOnTurns) then
+                    -- Draw a rectangle if the snake body is straight
+                    love.graphics.rectangle(
+                        "fill",
+                        1 + (snake.body[i].x * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
+                        1 + ((self.numTilesY - 1 - snake.body[i].y) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
+                        self.cellWidth,
+                        self.cellHeight
+                    )
+                else
+                    -- Draw a circle if the snake is turning.
+                    -- We position the circle such that the correct arc appears within the current cell.
+                    local centerx, centery
+
+                    if (py < 0 and ax < 0) or (ay > 0 and px > 0) then
+                        centerx = 1 + (snake.body[i].x * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2) + self.cellWidth
+                        centery = 1 + ((self.numTilesY - 1 - snake.body[i].y) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2)  + self.cellHeight
+                    elseif (py > 0 and ax > 0) or (ay < 0 and px < 0) then
+                        centerx = 1 + (snake.body[i].x * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2) 
+                        centery = 1 + ((self.numTilesY - 1 - snake.body[i].y) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2)  
+                    elseif (py < 0 and ax > 0) or (ay > 0 and px < 0) then
+                        centerx = 1 + (snake.body[i].x * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2) 
+                        centery = 1 + ((self.numTilesY - 1 - snake.body[i].y) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2)  + self.cellHeight
+                    elseif (py > 0 and ax < 0)  or (ay < 0 and px > 0) then
+                        centerx = 1 + (snake.body[i].x * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2) + self.cellWidth
+                        centery = 1 + ((self.numTilesY - 1 - snake.body[i].y) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2)
+                    end
+
+                    -- Clip the circle drawing to the current cell, so that only the arc will be drawn
+                    love.graphics.setScissor(
+                        1 + (snake.body[i].x * self.tileWidth) + ((self.tileWidth - self.cellWidth) / 2),
+                        1 + ((self.numTilesY - 1 - snake.body[i].y) * self.tileHeight) + ((self.tileHeight - self.cellHeight) / 2),
+                        self.cellWidth+1,
+                        self.cellHeight+1    
+                    )
+                    love.graphics.ellipse(
+                        "fill",
+                        centerx,
+                        centery,
+                        self.cellWidth,
+                        self.cellHeight,
+                        50
+                    )
+                    love.graphics.setScissor()
+                end
+
                 love.graphics.setColor(1, 1, 1, 1)
             end
         end
